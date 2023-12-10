@@ -2,7 +2,6 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import exceptions
-from .utils import OAuth2PasswordBearerWithCookieч
 from .service import DatabaseManager
 from .models import User
 

@@ -251,12 +251,11 @@ class TokenCrud:
             return user_id
 
         except jwt.ExpiredSignatureError as e:
-            logger.opt(exceptions=e).critical(
-                "Error in get_access_token_payload")
+            logger.opt(exception=e).critical("Error in delete_file")
             raise exceptions.TokenExpired
 
-        except jwt.DecodeError:
-            logger.opt(exceptions=e).critical(
+        except jwt.DecodeError as e:
+            logger.opt(exception=e).critical(
                 "Error in get_access_token_payload")
             raise exceptions.InvalidToken
 

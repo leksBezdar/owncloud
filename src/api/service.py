@@ -2,19 +2,18 @@ import os
 
 from loguru import logger
 
-from fastapi import Depends, UploadFile, WebSocket
+from fastapi import UploadFile
 from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import schemas
 from .models import File
-from .dao import FileDAO
+
+from . import schemas
+from .dao import FileDAO, FolderDAO
 from .config import ROOT_DIR, UPLOAD_DIR
 
-from ..auth.models import User
 from ..auth.service import DatabaseManager
-from ..database import get_async_session
-from ..utils import check_record_existence, get_unique_id
+from ..utils import get_unique_id
 
 
 class FileCRUD:
@@ -23,25 +22,20 @@ class FileCRUD:
         self.db = db
         
     
-    async def upload_file(self, token: str, file: UploadFile) -> File:
-        
-        db_manager = DatabaseManager(self.db)
-        token_service = db_manager.token_crud
-        
+    async def upload_file(self, token: str, file: UploadFile, folder_id: int) -> File:
+               
         try: 
-            user_id = await token_service.get_access_token_payload(token)
-            
-            logger.info(f"User {user_id} creates file: {file.filename}")
-            await self._ensure_upload_folder_exists(user_id)
+            await self._ensure_upload_folder_exists(user_id)         
+            user_id = await self._get_user_id_from_token(token)        
 
             file_name, file_extension = file.filename.split('.')
             file_path = os.path.join(ROOT_DIR, UPLOAD_DIR, user_id , f"{file_name}.{file_extension}")
+            
+            logger.info(f"User {user_id} creates file: {file.filename} into {file_path}")
 
-            with open(file_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
+            await self._create_file(file, file_path)
                 
-                db_file = await FileDAO.add(
+            db_file = await FileDAO.add(
                 self.db,
                 schemas.CreateFile(
                     id=await get_unique_id(),
@@ -49,12 +43,11 @@ class FileCRUD:
                     file_extension=file_extension,
                     file_path=file_path,
                     user_id=user_id,
+                    folder_id=folder_id
                 )
             )
 
-                self.db.add(db_file)
-                await self.db.commit()
-                await self.db.refresh(db_file)
+            await self.db.commit()
 
             return db_file   
         
@@ -65,18 +58,12 @@ class FileCRUD:
     
     async def get_file(self, token: str, file_path: str) -> str:
         
-        db_manager = DatabaseManager(self.db)
-        token_service = db_manager.token_crud
-        
-        user_id = await token_service.get_access_token_payload(token)
-        
-        await check_record_existence(self.db, User, user_id)
+        user_id = await self._get_user_id_from_token(token)
         
         logger.info(f"User {user_id} gets file by file_path: {file_path}")      
         
         try: 
-            target_file = os.path.join(ROOT_DIR, UPLOAD_DIR, user_id, file_path)
-            
+            target_file = os.path.join(ROOT_DIR, UPLOAD_DIR, user_id, file_path)         
             return target_file  
                    
         except Exception as e:
@@ -85,15 +72,9 @@ class FileCRUD:
         
     async def delete_file(self, token: str, file_path: str) -> str:
         
-        db_manager = DatabaseManager(self.db)
-        token_service = db_manager.token_crud
-        
-        user_id = await token_service.get_access_token_payload(token)    
-        await check_record_existence(self.db, User, user_id)
-        
-        logger.info(f"User {user_id} delete file by file_path: {file_path}")
-        
         try: 
+            user_id = await self._get_user_id_from_token(token)   
+            logger.info(f"User {user_id} delete file by file_path: {file_path}")
             
             target_file = os.path.join(ROOT_DIR, UPLOAD_DIR, user_id, file_path)
             
@@ -109,6 +90,20 @@ class FileCRUD:
             logger.opt(exception=e).critical("Error in delete_file")
             raise
         
+    async def _get_user_id_from_token(self, token: str):
+        
+        db_manager = DatabaseManager(self.db)
+        token_service = db_manager.token_crud
+        
+        user_id = await token_service.get_access_token_payload(token)
+        return user_id
+    
+    @staticmethod
+    async def _create_file(file: UploadFile, file_path: str) -> None:     
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+    
     @staticmethod
     async def _ensure_upload_folder_exists(user_id: str) -> None:
         upload_folder = os.path.join(ROOT_DIR, UPLOAD_DIR)
@@ -117,6 +112,56 @@ class FileCRUD:
         for folder in [upload_folder, user_folder]:
             if not os.path.exists(folder):
                 os.makedirs(folder)
+            
+
+class FolderCRUD:
+    
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        
+    
+    async def create_folder(self, folder: schemas.CreateFolder, token: str):
+        
+        user_id = await self._get_user_id_from_token(token)
+        
+        folder_path = await self._create_folder(folder.folder_name, folder.parent_folder_id)
+        
+        db_folder = await FolderDAO.add(
+                self.db,
+                schemas.CreateFolderDB(
+                    id=await get_unique_id(),
+                    user_id=user_id,
+                    **folder.model_dump()
+                )
+            )
+
+        await self.db.commit()
+        
+        return db_folder  
+    
+    async def _create_folder(self, folder_name: str, parent_folder_id: int = None):
+        
+        parent_folder_path = await self._get_folder_path(parent_folder_id)
+        
+        folder_path = os.path.join(parent_folder_path, folder_name)
+
+        # Создаем папку, если она не существует
+        os.makedirs(folder_path, exist_ok=True)
+        
+        return folder_path
+    
+    
+    @staticmethod
+    async def _get_folder_path(folder_id) -> str:
+        ...
+    
+    async def _get_user_id_from_token(self, token: str) -> str:
+        
+        db_manager = DatabaseManager(self.db)
+        token_service = db_manager.token_crud
+        
+        user_id = await token_service.get_access_token_payload(token)
+        return user_id
             
 
 class FileManager:

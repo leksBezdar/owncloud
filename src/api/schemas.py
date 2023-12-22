@@ -19,15 +19,15 @@ class UpdateFile(FileBase):
 
 
 class FolderBase(BaseModel):
-    folder_name: str
+    folder_name: str | None = None
     parent_folder_id: int | None = None
 
 class CreateFolder(FolderBase):
     pass
     
 class CreateFolderDB(CreateFolder):
-    id: int
     user_id: str
+    folder_path: str
     
 class UpdateFolder(BaseModel):
     pass

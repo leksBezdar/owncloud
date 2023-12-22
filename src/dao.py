@@ -1,4 +1,6 @@
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
+from fastapi import HTTPException
+from loguru import logger
 
 from sqlalchemy import delete, insert, select, update, func
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,13 +37,17 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             return result.scalars().first()
         except (SQLAlchemyError, Exception) as e:
             print(e)
+            
+            logger.error(e)
+            
             if isinstance(e, SQLAlchemyError):
                 msg = "Database Exc: Cannot insert data into table"
+                raise HTTPException(status_code=500, detail=msg)
+            
             elif isinstance(e, Exception):
                 msg = "Unknown Exc: Cannot insert data into table"
-            print(msg)
+            raise HTTPException(status_code=500, detail=msg)
 
-            return None
 
     @classmethod
     async def find_one_or_none(cls, db: AsyncSession, *filter, **filter_by) -> Optional[ModelType]:

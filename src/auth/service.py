@@ -203,7 +203,7 @@ class TokenCrud:
     async def _create_refresh_token(self) -> str:
         return await get_unique_id()
 
-    async def create_tokens(self, user_id: str, response: Response, isDev: bool):
+    async def create_tokens(self, user_id: str, response: Response, isDev: bool = False):
 
         # Создание access и refresh токенов на основе payload
         access_token = await self._create_access_token(user_id)

@@ -32,7 +32,6 @@ async def login(
     response: Response,
     username: str,
     password: str,
-    isDev: bool = False,
     db: AsyncSession = Depends(get_async_session),
 ):
     db_manager = DatabaseManager(db)
@@ -40,7 +39,7 @@ async def login(
     token_crud = db_manager.token_crud
 
     user = await user_crud.authenticate_user(username=username, password=password)
-    token = await token_crud.create_tokens(user_id=user.id, response=response, isDev=isDev)
+    token = await token_crud.create_tokens(user_id=user.id, response=response)
 
     return {"tokens" : token, "user": user}
 

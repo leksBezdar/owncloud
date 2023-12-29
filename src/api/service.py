@@ -31,7 +31,7 @@ class PathService:
             Folder.id == parent_folder_id, Folder.user_id == user_id))
 
         if not parent_folder:
-            raise ValueError("Parent folder not found.")
+            raise exceptions.FolderWasNotFound
 
         return parent_folder.folder_path
     
@@ -41,7 +41,7 @@ class PathService:
             File.id == file_id, File.user_id == user_id))
         
         if not file:
-            raise ValueError("File not found.")
+            raise exceptions.FileWasNotFound
         
         return file.file_path
     
@@ -65,22 +65,16 @@ class FileCRUD:
 
         try:
             user_id = await self._get_user_id_from_token(token)
-            folder_path = await self.path_service.get_folder_path(folder_id, user_id)
             await self.path_service.ensure_upload_folder_exists(user_id)
-
+            
+            folder_path = await self.path_service.get_folder_path(folder_id, user_id)
             file_name, file_extension = file.filename.split('.')
-            file_path = os.path.join(
-                folder_path, f"{file_name}.{file_extension}")
+            file_path = os.path.join(folder_path, f"{file_name}.{file_extension}")
 
-            logger.info(
-                f"User {user_id} creates file: {file.filename} into {file_path}")
+            logger.info(f"User {user_id} creates file: {file.filename} into {file_path}")
 
             await self._create_file(file, file_path)
-
-            db_file = await self._upload_file(
-                file_name, file_extension, file_path, user_id, folder_id)
-
-            await self.db.commit()
+            db_file = await self._upload_file(file_name, file_extension, file_path, user_id, folder_id)
 
             return db_file
 
@@ -89,7 +83,6 @@ class FileCRUD:
             raise e
 
     async def _upload_file(self, file_name, file_extension, file_path, user_id, folder_id) -> File:
-
         db_file = await FileDAO.add(
             self.db,
             schemas.CreateFile(
@@ -101,7 +94,7 @@ class FileCRUD:
                 folder_id=folder_id
             )
         )
-
+        await self.db.commit()
         return db_file
 
     async def get_file(self, token: str, file_id: str) -> str:
@@ -112,7 +105,6 @@ class FileCRUD:
 
         try:
             target_file = await self.path_service.get_file_path(file_id, user_id)
-            print(target_file)
             return target_file
 
         except Exception as e:
@@ -132,23 +124,25 @@ class FileCRUD:
     async def delete_file(self, token: str, file_id: str) -> str:
 
         try:
-            file_path = await self.path_service.get_file_path(file_id)
-            
+            file_path = await self.path_service.get_file_path(file_id)           
             user_id = await self._get_user_id_from_token(token)
-            logger.info(
-                f"User {user_id} delete file by file_path: {file_path}")
+            logger.info(f"User {user_id} deletes file by file_path: {file_path}")
 
             if os.path.exists(file_path):
                 os.remove(file_path)
+                await self._delete_file_db(user_id, file_path)    
+                return {"Message": f"File {file_path} was deleted by user {user_id} successfully"}
 
-            await FileDAO.delete(self.db, and_(user_id == File.user_id, file_path == File.file_path))
-            await self.db.commit()
-
-            return {"Message": f"File {file_path} was deleted by user {user_id} successfully"}
+            return {"Message": f"File {file_id} does not exist"}        
 
         except Exception as e:
             logger.opt(exception=e).critical("Error in delete_file")
             raise
+        
+    async def _delete_file_db(self, user_id: str, file_path: str) -> None:
+        
+        await FileDAO.delete(self.db, and_(user_id == File.user_id, file_path == File.file_path))
+        await self.db.commit()
 
     async def _get_user_id_from_token(self, token: str):
 
@@ -165,7 +159,6 @@ class FileCRUD:
             f.write(content)
 
 
-
 class FolderCRUD:
 
     def __init__(self, db: AsyncSession, path_service: PathService):
@@ -177,19 +170,9 @@ class FolderCRUD:
         try:
 
             user_id = await self._get_user_id_from_token(token)
-
             folder_path = await self._create_folder(folder.folder_name, user_id, folder.parent_folder_id)
 
-            db_folder = await FolderDAO.add(
-                self.db,
-                schemas.CreateFolderDB(
-                    user_id=user_id,
-                    folder_path=folder_path,
-                    **folder.model_dump()
-                )
-            )
-
-            await self.db.commit()
+            db_folder = await self._create_folder_db(folder, user_id, folder_path)
 
             response = {"db_folder": db_folder, "folder_path": folder_path}
             return response
@@ -208,6 +191,19 @@ class FolderCRUD:
         os.makedirs(folder_path, exist_ok=False)
 
         return folder_path
+
+    async def _create_folder_db(self, folder: schemas.CreateFolder, user_id: str, folder_path: str):
+        
+        db_folder = await FolderDAO.add(
+                self.db,
+                schemas.CreateFolderDB(
+                    user_id=user_id,
+                    folder_path=folder_path,
+                    **folder.model_dump()
+                )
+            )
+        await self.db.commit()      
+        return db_folder
 
     async def get_folders(self, folder_id: int | None, token: str) -> list[Folder]:
 
@@ -231,16 +227,19 @@ class FolderCRUD:
     async def delete_folder(self, token: str, folder_id: int) -> str:
         
         user_id = await self._get_user_id_from_token(token)      
-        folder_path = await self.path_service.get_folder_path(folder_id)
+        folder_path = await self.path_service.get_folder_path(folder_id, user_id)
         
         if os.path.exists(folder_path):
-            os.remove(folder_path)       
+            os.remove(folder_path)
+            await self._delete_folder_db(folder_id, user_id)
+            return {"Message":f"Folder {folder_id} was deleted by user {user_id} successfully"}  
         
+        return {"Message": f"folder {folder_id} does not exist"}           
+
+    async def _delete_folder_db(self, folder_id, user_id):
+         
         await FolderDAO.delete(self.db, and_(Folder.id == folder_id, Folder.user_id == user_id))
         await self.db.commit()
-        
-        return {"Message":f"Folder {folder_id} was deleted by user {user_id} successfully"}
-
 
 class FileManager:
     def __init__(self, db: AsyncSession):

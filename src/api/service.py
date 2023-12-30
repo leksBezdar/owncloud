@@ -74,7 +74,7 @@ class FileCRUD:
             logger.info(f"User {user_id} creates file: {file.filename} into {file_path}")
 
             await self._create_file(file, file_path)
-            db_file = await self._upload_file(file_name, file_extension, file_path, user_id, folder_id)
+            db_file = await self._upload_file(file_name, file_extension, file_path, user_id, folder_id, file.size)
 
             return db_file
 
@@ -82,7 +82,7 @@ class FileCRUD:
             logger.opt(exception=e).critical("Error in upload_file")
             raise e
 
-    async def _upload_file(self, file_name, file_extension, file_path, user_id, folder_id) -> File:
+    async def _upload_file(self, file_name, file_extension, file_path, user_id, folder_id, file_size) -> File:
         db_file = await FileDAO.add(
             self.db,
             schemas.CreateFile(
@@ -90,6 +90,7 @@ class FileCRUD:
                 file_name=file_name,
                 file_extension=file_extension,
                 file_path=file_path,
+                file_size=file_size,
                 user_id=user_id,
                 folder_id=folder_id
             )
@@ -111,13 +112,16 @@ class FileCRUD:
             logger.opt(exception=e).critical("Error in get_file")
             raise
 
-    async def get_folder_files(self, token: str, folder_id: str) -> list[File]:
+    async def get_folder_files(self, token: str, folder_id: str, limit: int, offset: int, order_by: str) -> list[File]:
 
         user_id = await self._get_user_id_from_token(token)
 
-        target_files = await FileDAO.find_all(self.db, and_(
+        target_files = await FileDAO.find_all_ordered(self.db, and_(
             File.user_id == user_id,
-            File.folder_id == folder_id))
+            File.folder_id == folder_id),
+            limit=limit, offset=offset,
+            order_by=order_by
+        )
         
         return target_files
 
@@ -158,6 +162,23 @@ class FileCRUD:
             content = await file.read()
             f.write(content)
 
+
+    async def switch_favorite_file(self, file_id: int, token: str):
+        user_id = await self._get_user_id_from_token(token)
+        
+        file = await FileDAO.find_one_or_none(self.db, and_(
+            File.user_id==user_id,
+            File.id==file_id
+        ))     
+
+        file_update = await FileDAO.update(
+            self.db,
+            File.id == file_id,
+            obj_in={"is_favorite": not file.is_favorite})
+     
+        await self.db.commit()
+    
+        return file_update
 
 class FolderCRUD:
 

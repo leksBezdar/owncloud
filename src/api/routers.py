@@ -71,13 +71,28 @@ async def get_folders(
 async def get_folder_files(
     token: str,
     folder_id: int = None,
+    order_by: str = None,
+    limit: int = 10,
+    offset: int = 0,
     db: AsyncSession = Depends(get_async_session)
 ):
         
     file_manager = FileManager(db)
     file_crud = file_manager.file_crud
     
-    return await file_crud.get_folder_files(token=token, folder_id=folder_id)
+    return await file_crud.get_folder_files(token=token, folder_id=folder_id, limit=limit, offset=offset, order_by=order_by)
+
+@router.patch("/switch_favorite_file")
+async def switch_favorite_file(
+    token: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_async_session)
+):
+    
+    file_manager = FileManager(db)
+    file_crud = file_manager.file_crud
+    
+    return await file_crud.switch_favorite_file(token=token, file_id=file_id)
     
     
 @router.delete("/delete_file")
@@ -91,6 +106,7 @@ async def delete_file(
     file_crud = file_manager.file_crud
     
     return await file_crud.delete_file(token, file_id)
+
 
 @router.delete("/delete_folder")
 async def delete_folder(

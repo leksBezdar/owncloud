@@ -86,6 +86,27 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         )
         result = await db.execute(stmt)
         return result.scalars().all()
+    
+    @classmethod
+    async def find_all_ordered(
+        cls,
+        db: AsyncSession,
+        *filter,
+        order_by: str,
+        offset: int = 0,
+        limit: int = 10000,
+        **filter_by
+    ) -> List[ModelType]:
+        stmt = (
+            select(cls.model)
+            .filter(*filter)
+            .filter_by(**filter_by)
+            .order_by(order_by)
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return result.scalars().all()
 
     @classmethod
     async def update(
@@ -99,7 +120,6 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             update_data = obj_in
         else:
             update_data = obj_in.model_dump(exclude_unset=True)
-
         stmt = (
             update(cls.model).
             where(*where).

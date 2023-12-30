@@ -5,6 +5,7 @@ class FileBase(BaseModel):
     file_name: str
     file_extension: str
     file_path: str
+    file_size: int
     user_id: str
     folder_id: int | None = None
 

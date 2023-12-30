@@ -2,7 +2,7 @@ from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
 from fastapi import HTTPException
 from loguru import logger
 
-from sqlalchemy import delete, insert, select, update, func
+from sqlalchemy import delete, insert, select, update, func, desc
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -97,14 +97,13 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         limit: int = 10000,
         **filter_by
     ) -> List[ModelType]:
-        stmt = (
-            select(cls.model)
-            .filter(*filter)
-            .filter_by(**filter_by)
-            .order_by(order_by)
-            .offset(offset)
-            .limit(limit)
-        )
+        stmt = select(cls.model).filter(*filter).filter_by(**filter_by)
+
+        if order_by is not None:
+            stmt = stmt.order_by(desc(order_by))
+
+        stmt = stmt.offset(offset).limit(limit)
+
         result = await db.execute(stmt)
         return result.scalars().all()
 
